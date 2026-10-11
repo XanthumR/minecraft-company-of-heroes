@@ -55,7 +55,9 @@ public final class Gunnery {
     static void register() {
         NeoForge.EVENT_BUS.addListener((ServerTickEvent.Post e) -> tick());
         NeoForge.EVENT_BUS.addListener((EntityJoinLevelEvent e) -> {
-            if (firing != null && e.getEntity() instanceof AbstractCannonProjectile shell) measure(shell, firing);
+            // Also fires for the client's copy of the shell; only the server thread may touch gun state.
+            if (!e.getLevel().isClientSide() && firing != null && e.getEntity() instanceof AbstractCannonProjectile shell)
+                measure(shell, firing);
         });
     }
 

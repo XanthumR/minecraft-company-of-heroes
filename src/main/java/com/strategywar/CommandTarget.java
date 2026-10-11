@@ -79,6 +79,9 @@ public class CommandTarget implements NavigationTarget {
      */
     @Override
     public int getRedstoneStrength(NavTableBlockEntity nav, Direction direction, ItemStack self) {
+        // The client also asks (to render signals). Driver state belongs to the server thread, and in
+        // single-player both threads share these static maps, so the client must not touch them.
+        if (nav.getLevel().isClientSide) return 0;
         Direction forward = self.get(StrategyWar.FORWARD);
         Drive d = DRIVES.get(nav);
         if (forward != null && d != null) {
@@ -98,7 +101,8 @@ public class CommandTarget implements NavigationTarget {
 
     @Override
     public void onInsert(ItemStack stack, NavTableBlockEntity nav, @Nullable Player player) {
-        if (player == null) return;
+        // Simulated calls this on both sides; the server's stack syncs to the client anyway.
+        if (player == null || nav.getLevel().isClientSide) return;
         stack.set(StrategyWar.OWNER, player.getUUID());
         // The way the player faces when inserting becomes the vehicle's front, snapped to a block side.
         Vec3 look = player.getLookAngle();
@@ -107,8 +111,7 @@ public class CommandTarget implements NavigationTarget {
         Direction forward = Direction.getNearest(look.x, 0, look.z);
         stack.set(StrategyWar.FORWARD, forward);
         DRIVES.remove(nav);
-        if (!player.level().isClientSide)
-            player.displayClientMessage(Component.literal("Unit front set to where you're facing (" + forward.getName() + ")"), true);
+        player.displayClientMessage(Component.literal("Unit front set to where you're facing (" + forward.getName() + ")"), true);
     }
 
     // ponytail: orders without an owner (inserted by hopper/deployer) obey anyone. Lock down if that gets abused.
