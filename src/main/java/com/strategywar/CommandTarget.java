@@ -1,9 +1,11 @@
 package com.strategywar;
 
+import dev.ryanhcode.sable.Sable;
 import dev.simulated_team.simulated.content.blocks.nav_table.NavTableBlockEntity;
 import dev.simulated_team.simulated.content.blocks.nav_table.navigation_target.NavigationTarget;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -17,17 +19,27 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.WeakHashMap;
 
 /**
- * Nav Table target for the Command Order item. The Nav Table does the steering: it outputs
- * redstone on the side facing the target, which the vehicle's wheels are wired to.
+ * Nav Table target for the Command Order item. The {@link Driver} decides how to drive; this maps
+ * its outputs onto the Nav Table's sides relative to the vehicle's front:
+ * left/right = steering, back = halt (15 = stop), front = reverse (15 = reverse, for a Gearshift).
  */
 public class CommandTarget implements NavigationTarget {
     /** Every Nav Table currently holding a Command Order. Server thread only. */
     private static final Set<NavTableBlockEntity> UNITS = Collections.newSetFromMap(new WeakHashMap<>());
+
+    private static final class Drive {
+        final Driver driver = new Driver();
+        @Nullable BlockPos target;
+    }
+
+    private static final Map<NavTableBlockEntity, Drive> DRIVES = new WeakHashMap<>(); // server thread only
 
     @Override
     public @Nullable Vec3 getTarget(NavTableBlockEntity nav, ItemStack self) {
@@ -35,7 +47,24 @@ public class CommandTarget implements NavigationTarget {
         UNITS.add(nav);
         BlockPos pos = self.get(StrategyWar.ORDER_POS);
         // No order = target ourselves, so we land in the deadzone and output the halt signal.
-        return pos == null ? nav.getProjectedSelfPos() : Vec3.atCenterOf(pos);
+        Vec3 target = pos == null ? nav.getProjectedSelfPos() : Vec3.atCenterOf(pos);
+        Direction forward = self.get(StrategyWar.FORWARD);
+        if (forward != null) drive(nav, forward, pos, target); // once per tick, so the driver's timers count ticks
+        return target;
+    }
+
+    private static void drive(NavTableBlockEntity nav, Direction forward, @Nullable BlockPos pos, Vec3 target) {
+        Drive d = DRIVES.computeIfAbsent(nav, n -> new Drive());
+        if (!Objects.equals(d.target, pos)) {
+            d.target = pos;
+            d.driver.retarget();
+        }
+        Vec3 local = target.subtract(nav.getProjectedSelfPos());
+        var vehicle = Sable.HELPER.getContaining(nav);
+        if (vehicle != null) local = vehicle.logicalPose().transformNormalInverse(local); // world -> vehicle frame
+        double ahead = local.dot(Vec3.atLowerCornerOf(forward.getNormal()));
+        double left = local.dot(Vec3.atLowerCornerOf(forward.getCounterClockWise().getNormal()));
+        d.driver.tick(Math.atan2(left, ahead), Math.hypot(ahead, left));
     }
 
     @Override
@@ -50,6 +79,17 @@ public class CommandTarget implements NavigationTarget {
      */
     @Override
     public int getRedstoneStrength(NavTableBlockEntity nav, Direction direction, ItemStack self) {
+        Direction forward = self.get(StrategyWar.FORWARD);
+        Drive d = DRIVES.get(nav);
+        if (forward != null && d != null) {
+            Direction side = direction.getOpposite(); // Minecraft passes the direction from the neighbour toward us
+            if (side == forward) return d.driver.reverse;
+            if (side == forward.getOpposite()) return d.driver.halt;
+            if (side == forward.getCounterClockWise()) return d.driver.steerLeft;
+            if (side == forward.getClockWise()) return d.driver.steerRight;
+            return 0;
+        }
+        // Legacy orders (inserted before the front was recorded): plain point-at-target steering.
         Vec3 toTarget = nav.getTargetPosition(true).subtract(nav.getProjectedSelfPos());
         if (toTarget.horizontalDistance() < getDeadzone()) return 15;
         // Simulated's side math goes negative (down to -14) for sides facing away from the target.
@@ -58,7 +98,17 @@ public class CommandTarget implements NavigationTarget {
 
     @Override
     public void onInsert(ItemStack stack, NavTableBlockEntity nav, @Nullable Player player) {
-        if (player != null) stack.set(StrategyWar.OWNER, player.getUUID());
+        if (player == null) return;
+        stack.set(StrategyWar.OWNER, player.getUUID());
+        // The way the player faces when inserting becomes the vehicle's front, snapped to a block side.
+        Vec3 look = player.getLookAngle();
+        var vehicle = Sable.HELPER.getContaining(nav);
+        if (vehicle != null) look = vehicle.logicalPose().transformNormalInverse(look);
+        Direction forward = Direction.getNearest(look.x, 0, look.z);
+        stack.set(StrategyWar.FORWARD, forward);
+        DRIVES.remove(nav);
+        if (!player.level().isClientSide)
+            player.displayClientMessage(Component.literal("Unit front set to where you're facing (" + forward.getName() + ")"), true);
     }
 
     // ponytail: orders without an owner (inserted by hopper/deployer) obey anyone. Lock down if that gets abused.
@@ -75,11 +125,19 @@ public class CommandTarget implements NavigationTarget {
                 List<UnitList.Unit> mine = new ArrayList<>();
                 for (NavTableBlockEntity nav : UNITS) {
                     if (nav.getLevel() == player.level() && commands(player, nav.getHeldItem()))
-                        mine.add(new UnitList.Unit(nav.getBlockPos(), nav.getProjectedSelfPos().toVector3f()));
+                        mine.add(new UnitList.Unit(nav.getBlockPos(), nav.getProjectedSelfPos().toVector3f(), status(nav)));
                 }
                 PacketDistributor.sendToPlayer(player, new UnitList(mine));
             }
         });
+    }
+
+    private static String status(NavTableBlockEntity nav) {
+        Drive d = DRIVES.get(nav);
+        if (!nav.getHeldItem().has(StrategyWar.FORWARD) || d == null)
+            return "! No front set: re-insert the order while facing the vehicle's front";
+        Driver v = d.driver;
+        return v.mode + "  L" + v.steerLeft + " R" + v.steerRight + "  throttle " + v.halt + "  reverse " + v.reverse;
     }
 
     static void order(Player player, Order order) {

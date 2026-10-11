@@ -169,6 +169,11 @@ public class StrategyScreen extends Screen {
             return;
         }
         PacketDistributor.sendToServer(new Order(kind, target, List.copyOf(SELECTED)));
+        switch (kind) {
+            case MOVE -> TargetMarkers.move(target);
+            case ATTACK -> TargetMarkers.attack(target);
+            case CEASE_FIRE -> TargetMarkers.ceaseFire();
+        }
         status = Component.literal(kind + " (" + SELECTED.size() + " units)"
                 + (kind == Order.Kind.CEASE_FIRE ? "" : ": " + target.toShortString()));
     }
@@ -230,6 +235,8 @@ public class StrategyScreen extends Screen {
             int color = SELECTED.contains(u.id()) ? 0xFF55FF55 : 0xFFFFFFFF;
             g.renderOutline(x - 6, y - 6, 12, 12, color);
             g.fill(x - 1, y - 1, x + 1, y + 1, color);
+            if (SELECTED.contains(u.id())) // driver readout: mode and each side's redstone level
+                g.drawCenteredString(font, u.status(), x, y + 9, u.status().startsWith("!") ? 0xFFFF5555 : 0xFFDDDDDD);
         }
         if (dragX >= 0 && (Math.abs(mouseX - dragX) > 4 || Math.abs(mouseY - dragY) > 4)) {
             int x0 = (int) Math.min(dragX, mouseX), y0 = (int) Math.min(dragY, mouseY);

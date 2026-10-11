@@ -15,9 +15,11 @@ import java.util.List;
  * A unit's id is its Nav Table's block position (inside the vehicle's Sable plot); pos is where it is in the world.
  */
 public record UnitList(List<Unit> units) implements CustomPacketPayload {
-    public record Unit(BlockPos id, Vector3f pos) {
+    /** status: what the unit's driver is doing and its side outputs, or a setup warning (starts with "!"). */
+    public record Unit(BlockPos id, Vector3f pos, String status) {
         static final StreamCodec<ByteBuf, Unit> STREAM_CODEC = StreamCodec.composite(
-                BlockPos.STREAM_CODEC, Unit::id, ByteBufCodecs.VECTOR3F, Unit::pos, Unit::new);
+                BlockPos.STREAM_CODEC, Unit::id, ByteBufCodecs.VECTOR3F, Unit::pos,
+                ByteBufCodecs.STRING_UTF8, Unit::status, Unit::new);
     }
 
     /** Latest list received. Only written and read on the client thread. */

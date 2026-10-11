@@ -21,17 +21,24 @@ Press **G** to switch to a top-down strategy view, select your tanks, and order 
 ## Building a unit
 
 A unit is any assembled Sable vehicle with a **Navigation Table** (from Create Simulated) holding a **Command Order**
-(Tools & Utilities creative tab). Whoever inserts the Command Order owns the unit.
+(Tools & Utilities creative tab). Insert the order **while facing the vehicle's front**: that sets which way is
+forward, and whoever inserts it owns the unit.
 
-The Nav Table outputs redstone on the side facing its target. Wire it like this:
+The mod drives the vehicle through redstone on the Nav Table's four sides, relative to that front:
 
-- **Steering:** Nav Table left side → Wheel Mounts' left side, right → right (Create Redstone Links work).
+- **Left / right sides → steering:** to the Wheel Mounts' left / right sides (Create Redstone Links work).
   If the vehicle steers away from the target, swap them.
-- **Throttle:** Nav Table **back** side → an **Analog Transmission** between your engine and the wheels
-  (or → the block above each Wheel Mount, which brakes). The signal means *stop*:
-  - 0 while the target is ahead (full speed)
-  - rising as the target swings behind the vehicle
-  - 15 on every side once the unit has arrived (within 4 blocks) or has no order
+- **Back side → throttle:** to an **Analog Transmission** between engine and wheels (or the block above each
+  Wheel Mount, which brakes). 15 means stop, 0 means full speed. It slows near the target and in sharp turns.
+  The transmission only changes speed between its shaft and its **cogwheel**: take the drive out through the
+  cog. A shaft run straight through it isn't throttled.
+- **Front side → reverse:** to a Create **Gearshift** in the drive line. 15 while reversing.
+
+Targets close behind a unit (within 20 blocks) are reversed into tail-first. Targets far behind, too close
+to turn into, or a unit that stops making progress (circling or stuck) get a multi-point turn: back up with
+opposite lock so the nose swings toward the target, then drive forward.
+Turn radius and timings are constants at the top of `Driver.java`.
+
 - **Cannons:** any Create Big Cannons **Cannon Mount** within 24 blocks of the Nav Table belongs to that unit.
   Assemble the cannon and keep it loaded; the mod aims and pulls the trigger.
 
@@ -47,6 +54,9 @@ The Nav Table outputs redstone on the side facing its target. Wire it like this:
 | Ctrl + right-click | Attack the ground there |
 | X | Cease fire (turrets return to neutral) |
 
+Selected units show a readout under their marker: driving mode and the redstone level on each Nav Table side,
+e.g. `TURN  L0 R15  throttle 8  reverse 15`. A red line means the unit isn't set up (e.g. no front set).
+
 The first shot at a target is a ranging shot. The mod measures the real shell (speed, gravity, drag) and aims
 later shots with it, so loading a different charge or shell takes one shot to adjust to.
 
@@ -59,7 +69,8 @@ later shots with it, so loading a different charge or shell takes one shot to ad
 
 Code map (`src/main/java/com/strategywar`):
 
-- `CommandTarget`: the Nav Table target (steering and halt signal), unit ownership, order handling
+- `CommandTarget`: the Nav Table target, maps driver outputs to sides, unit ownership, order handling
+- `Driver`: forward / reverse / arrived driving logic (pure Java, unit tested)
 - `Gunnery`: turret aiming, firing, measuring the ranging shot, parking on cease fire
 - `Ballistics`: shell flight model and elevation solver (pure Java, unit tested)
 - `Order` / `UnitList`: client→server orders, server→client unit positions
@@ -68,6 +79,5 @@ Code map (`src/main/java/com/strategywar`):
 ## Known limits
 
 - Selection picks by the Nav Table's position; click near it on long vehicles.
-- A target exactly behind a unit gives no steering, so it won't turn around; click off to the side.
 - Aiming treats the muzzle as 2 blocks above the mount and handles low arcs only (up to 40°).
 - Command Orders inserted by hoppers or deployers have no owner and obey anyone.

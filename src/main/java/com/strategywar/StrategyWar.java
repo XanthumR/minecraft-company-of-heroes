@@ -4,6 +4,7 @@ import dev.simulated_team.simulated.content.blocks.nav_table.navigation_target.N
 import dev.simulated_team.simulated.index.SimDataComponents;
 import dev.simulated_team.simulated.index.SimRegistries;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.Registries;
@@ -39,6 +40,9 @@ public class StrategyWar {
     /** Player who put the order in a Nav Table. Only they can command that unit. */
     public static final Supplier<DataComponentType<UUID>> OWNER = COMPONENTS.registerComponentType(
             "owner", b -> b.persistent(UUIDUtil.CODEC).networkSynchronized(UUIDUtil.STREAM_CODEC));
+    /** The vehicle's front, in its own (Sable plot) frame. Set from where the player faced when inserting the order. */
+    public static final Supplier<DataComponentType<Direction>> FORWARD = COMPONENTS.registerComponentType(
+            "forward", b -> b.persistent(Direction.CODEC).networkSynchronized(Direction.STREAM_CODEC));
     public static final DeferredHolder<NavigationTarget, CommandTarget> COMMAND_TARGET =
             NAV_TARGETS.register("command_order", CommandTarget::new);
 
@@ -52,7 +56,7 @@ public class StrategyWar {
         modBus.addListener((BuildCreativeModeTabContentsEvent e) -> {
             if (e.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) e.accept(COMMAND_ORDER);
         });
-        modBus.addListener((RegisterPayloadHandlersEvent e) -> e.registrar("2") // bump when packets change
+        modBus.addListener((RegisterPayloadHandlersEvent e) -> e.registrar("3") // bump when packets change
                 .playToServer(Order.TYPE, Order.STREAM_CODEC, (msg, ctx) -> CommandTarget.order(ctx.player(), msg))
                 .playToClient(UnitList.TYPE, UnitList.STREAM_CODEC, (msg, ctx) -> UnitList.latest = msg.units()));
         CommandTarget.register();

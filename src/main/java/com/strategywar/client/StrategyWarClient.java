@@ -19,6 +19,7 @@ public class StrategyWarClient {
 
     public StrategyWarClient(IEventBus modBus) {
         modBus.addListener((RegisterKeyMappingsEvent e) -> e.register(TOGGLE));
+        NeoForge.EVENT_BUS.addListener(TargetMarkers::render);
         NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post e) -> {
             Minecraft mc = Minecraft.getInstance();
             // While StrategyScreen is open it handles the key itself (screens swallow keymapping clicks).
