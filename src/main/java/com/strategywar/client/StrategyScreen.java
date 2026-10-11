@@ -3,6 +3,8 @@ package com.strategywar.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.strategywar.Order;
 import com.strategywar.UnitList;
+import dev.ryanhcode.sable.companion.ClientSubLevelAccess;
+import dev.ryanhcode.sable.companion.SableCompanion;
 import net.minecraft.client.Camera;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.GuiGraphics;
@@ -90,7 +92,10 @@ public class StrategyScreen extends Screen {
 
     private void placeCamera() {
         Vec3 back = Vec3.directionFromRotation(PITCH, yaw).scale(-dist);
-        cam.moveTo(focusX + back.x, focusY + back.y, focusZ + back.z, yaw, PITCH);
+        // Not moveTo(): that also resets the previous position, which kills between-tick interpolation.
+        cam.setPos(focusX + back.x, focusY + back.y, focusZ + back.z);
+        cam.setYRot(yaw);
+        cam.setXRot(PITCH);
     }
 
     @Override
@@ -125,7 +130,7 @@ public class StrategyScreen extends Screen {
         BlockPos nearest = null;
         double nearestDist = 12 * 12;          // click must land within 12px of a unit marker
         for (UnitList.Unit u : UnitList.latest) {
-            float[] p = toScreen(u.pos());
+            float[] p = toScreen(unitPos(u, 1f));
             if (p == null) continue;
             if (box) {
                 if (inRange(p[0], dragX, mouseX) && inRange(p[1], dragY, mouseY)) SELECTED.add(u.id());
@@ -141,6 +146,16 @@ public class StrategyScreen extends Screen {
         dragX = -1;
         status = Component.literal(SELECTED.size() + " unit(s) selected");
         return true;
+    }
+
+    /**
+     * Where to draw a unit this frame: its Nav Table run through the vehicle's interpolated render pose,
+     * so markers stay glued to the vehicle. The server's position (4x/second) is only a fallback.
+     */
+    private Vector3f unitPos(UnitList.Unit u, float partialTick) {
+        if (SableCompanion.INSTANCE.getContaining(minecraft.level, u.id()) instanceof ClientSubLevelAccess vehicle)
+            return vehicle.renderPose(partialTick).transformPosition(Vec3.atCenterOf(u.id())).toVector3f();
+        return u.pos();
     }
 
     private static boolean inRange(double v, double a, double b) {
@@ -209,7 +224,7 @@ public class StrategyScreen extends Screen {
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         super.render(g, mouseX, mouseY, partialTick);
         for (UnitList.Unit u : UnitList.latest) {
-            float[] p = toScreen(u.pos());
+            float[] p = toScreen(unitPos(u, partialTick));
             if (p == null) continue;
             int x = (int) p[0], y = (int) p[1];
             int color = SELECTED.contains(u.id()) ? 0xFF55FF55 : 0xFFFFFFFF;
